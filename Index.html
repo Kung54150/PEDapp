@@ -204,7 +204,15 @@ function goM(y,m){
   }else{setEd(S.next);render()}
 }
 function setAD(d,key){const k=key||(AD&&AD.months[am]&&AD.months[am].key);AD=d;const i=d.months.findIndex(x=>x.key===k);am=i<0?0:i}
+function adminChips(cur){
+  const nx=S.next;let h="";
+  for(let i=-8;i<=12;i++){const t=nx.y*12+nx.m-1+i,y=Math.floor(t/12),m=t%12+1,k=y+"-"+String(m).padStart(2,"0");
+    h+=`<button class="chip${k===cur?" on":""}${k===nx.key?" ed":""}" onclick="pickMonth('${k}')">${MN[m-1]}<small>${y+543}${k===nx.key?" · เดือนหน้า":k===S.cur.key?" · ปัจจุบัน":""}</small></button>`}
+  return h}
 function pickMonth(v){
+  if(!v)return;const ix=AD.months.findIndex(x=>x.key===v);
+  if(ix>=0){am=ix;ad=0;warn=null;msg="";RS=null;render();return}
+
   if(!v)return;const have=AD.months.map(x=>x.key);
   call("adminData",[auth.code,auth.pin,have.concat(v)],r=>{if(!r.ok){err=r.msg;render();return}setAD(r,v);ad=0;warn=null;msg="";RS=null;render()})
 }
@@ -329,7 +337,7 @@ function adminHtml(){
   const ol=overList(mo);
   return `<div class="card top"><h1>หน้าแอดมิน</h1><button class="link" onclick="view='me';render()">← กลับ</button></div>
   ${ol.length?`<div class="warn" style="margin-bottom:12px">⚠ มีคำขอเกินโควต้า ${ol.length} รายการใน ${MN[mo.m-1]}: ${ol.join(" · ")}</div>`:""}
-  <div class="g"><div class="card main"><div class="mu" style="margin-bottom:6px">เลือกเดือนอื่น (แก้ได้ทุกเดือน): <input type="month" value="${mo.key}" onchange="pickMonth(this.value)" style="width:auto;display:inline-block"></div><div class="tabs">${AD.months.map((x,i)=>`<button class="${am===i?"on":""}" onclick="am=${i};ad=0;warn=null;msg='';RS=null;render()">${MN[x.m-1]} ${x.y+543}</button>`).join("")}</div>
+  <div class="g"><div class="card main"><div class="strip" id="astrip">${adminChips(mo.key)}</div>
   <div style="border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:10px"><h2>ชั่วโมงบังคับ ${MN[mo.m-1]} ${mo.y+543}</h2>
   <div class="mu">กรอกล่วงหน้าได้ · ตำแหน่งละไม่เท่ากัน</div>${hrsForm("ah"+am,mo.hours)}
   <button class="btn" ${busy?"disabled":""} onclick="saveHrs('${mo.key}','ah'+am)">บันทึกชั่วโมงบังคับ</button></div>
@@ -357,7 +365,7 @@ function cal(info,editable){
   return `<div class="cal">${h}</div>`;
 }
 
-function render(){render0();let m=document.getElementById('pop');if(!m){m=document.createElement('div');m.id='pop';document.body.appendChild(m)}m.innerHTML=popupHtml()}
+function render(){render0();for(const id of["#strip","#astrip"]){const st=$(id),on=st&&st.querySelector(".chip.on");if(on)st.scrollLeft=on.offsetLeft-(st.clientWidth-on.clientWidth)/2}let m=document.getElementById('pop');if(!m){m=document.createElement('div');m.id='pop';document.body.appendChild(m)}m.innerHTML=popupHtml()}
 function render0(){
   const a=$("#app");
   a.style.maxWidth=view==="print"?"none":"";
@@ -410,8 +418,6 @@ function render0(){
     <button class="btn alt" ${adminSent||busy?"disabled":""} onclick="notify()">แจ้งแอดมิน</button>
     ${adminSent?`<div class="ok">ส่งเรื่องถึงแอดมินแล้ว</div>`:""}`}
     ${msg?`<div class="ok">${msg}</div>`:""}</div></div>`;
-  const strip=$("#strip"),onc=strip&&strip.querySelector(".chip.on");
-  if(onc)strip.scrollLeft=onc.offsetLeft-(strip.clientWidth-onc.clientWidth)/2;
 }
 render();
 </script>
