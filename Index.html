@@ -104,6 +104,7 @@ select{min-height:42px}
 .tk{width:64px;aspect-ratio:1;border-radius:8px;border:1px solid;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
 .tk .w{font-size:11px;font-weight:600;opacity:.85}.tk .n{font-size:20px;font-weight:800;line-height:1.1}
 .tk .t{margin-top:3px;font-size:10px;font-weight:700;display:flex;align-items:center;gap:2px}.tk .t span{font-size:12px}
+.tk.pd{border-style:dashed;border-width:2px}
 .tk.X{color:var(--x);background:var(--xb);border-color:var(--x)}.tk.S{color:var(--sh);background:var(--shb);border-color:var(--sh)}.tk.V{color:var(--v);background:var(--vb);border-color:var(--v)}
 .hin{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;margin-top:8px}
 </style>
@@ -173,7 +174,7 @@ function notify(){
   });
 }
 const TICON={X:["🌴","Off"],S:["⏰","สั้น"],V:["✈️","Va"]};
-function tickets(g,y,m){return `<div class="grp"><div class="gh">${TICON[g.k][0]} ${TYPES[g.k]} <span style="font-size:11px;opacity:.8">(${TICON[g.k][1]})</span><small>${g.ds.length} วัน</small></div><div class="tks">${g.ds.map(d=>`<div class="tk ${g.k}"><div class="w">${DOW[new Date(y,m-1,d).getDay()]}</div><div class="n">${d}</div><div class="t"><span>${TICON[g.k][0]}</span>${TICON[g.k][1]}</div></div>`).join("")}</div></div>`}
+function tickets(g,y,m,pend){return `<div class="grp"><div class="gh">${TICON[g.k][0]} ${TYPES[g.k]} <span style="font-size:11px;opacity:.8">(${TICON[g.k][1]})</span><small>${pend?"กำลังเลือก · กด Add ":""}${g.ds.length} วัน</small></div><div class="tks">${g.ds.map(d=>`<div class="tk ${g.k}${pend?" pd":""}"><div class="w">${DOW[new Date(y,m-1,d).getDay()]}</div><div class="n">${d}</div><div class="t"><span>${TICON[g.k][0]}</span>${TICON[g.k][1]}</div></div>`).join("")}</div></div>`}
 const RK=["NA","PN","RN"];
 function hrsLine(h){return RK.filter(k=>h&&h[k]).map(k=>k+" "+h[k]).join(" · ")||"ยังไม่กำหนด"}
 function hrsForm(idp,h){return `<div class="hin">${RK.map(k=>`<b>${k}</b><input id="${idp}${k}" type="number" min="1" max="400" inputmode="decimal" placeholder="ชม." value="${h&&h[k]||""}">`).join("")}</div>`}
@@ -383,7 +384,7 @@ function render0(){
   if(!S){
     a.innerHTML=`<div class="card"><h1>ขอเวร</h1><div class="mu">ศูนย์กุมารเวช + ศูนย์เด็กสุขภาพดี</div></div>
     <div class="card"><h2>เข้าสู่ระบบ</h2>
-    <input id="code" inputmode="numeric" placeholder="รหัสพนักงาน" onkeydown="if(event.key==='Enter')login()">
+    <input id="code" inputmode="numeric" placeholder="รหัสพนักงาน" onkeydown="if(event.key==='Enter'){event.preventDefault();$('#pin').focus()}">
     <input id="pin" type="password" placeholder="PIN (ถ้ามี)" onkeydown="if(event.key==='Enter')login()">
     <button class="btn" ${busy?"disabled":""} onclick="login()">${busy?"กำลังตรวจสอบ…":"เข้าใช้งาน"}</button>
     ${err?`<div class="err">${esc(err)}</div>`:""}
@@ -419,7 +420,8 @@ function render0(){
     ${err?`<div class="err">${esc(err)}</div>`:""}</div>
 
   <div class="card s1"><h2>คำขอของฉัน – ${MN[mvm-1]} ${mvy+543}</h2>
-    ${grp.length?grp.map(g=>tickets(g,mvy,mvm)+(op?`<div style="text-align:right"><button class="x" onclick="rmType('${g.k}')">✕ ลบ${TYPES[g.k]}ทั้งหมด</button></div>`:"")).join(""):`<div class="mu">ยังไม่มีคำขอ</div>`}
+    ${isNext&&op&&sel.size?tickets({k:mode,ds:[...sel].sort((a,b)=>a-b)},mvy,mvm,true):""}
+    ${grp.length?grp.map(g=>tickets(g,mvy,mvm)+(op?`<div style="text-align:right"><button class="x" onclick="rmType('${g.k}')">✕ ลบ${TYPES[g.k]}ทั้งหมด</button></div>`:"")).join(""):sel.size?"":`<div class="mu">ยังไม่มีคำขอ</div>`}
     <div class="row"><span>ใช้โควต้าเวรหยุด (หยุด + ลาพักร้อน)</span><b>${used(draft)} / ${S.quota} วัน</b></div>
     ${op?`<button class="btn" ${dirty&&!busy?"":"disabled"} onclick="save()">${busy?"กำลังบันทึก…":"บันทึก"}</button>
     <div class="mu" style="margin-top:6px">${dirty?"มีการแก้ไขที่ยังไม่ได้บันทึก (กรอบประ)":"แตะวันที่ที่มีคำขอ หรือกด ✕ เพื่อยกเลิก/แก้ไข"}</div>`
