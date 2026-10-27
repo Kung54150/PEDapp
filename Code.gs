@@ -341,25 +341,36 @@ function save(code, pin, items, key) {
 }
 
 /** ข้อมูลสำหรับหน้าแอดมิน: คำขอของทุกคน ทั้งเดือนปัจจุบันและเดือนหน้า */
-function adminData(code, pin) {
+function ymOf_(key) {
+  key = String(key || '').trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(key)) return null;
+  return { y: Number(key.slice(0, 4)), mm: Number(key.slice(5)) };
+}
+
+function adminData(code, pin, extra) {
   const u = auth_(code, pin);
   if (!u || !u.admin) return { ok: false, msg: 'ไม่มีสิทธิ์แอดมิน' };
   const m = months_();
-  const mk = (key, y, mm) => ({ key: key, y: y, m: mm, n: daysIn_(y, mm), rows: allReq_(key), hours: reqHoursMonth_(key) });
+  const mk = key => { const t = ymOf_(key); return { key: key, y: t.y, m: t.mm, n: daysIn_(t.y, t.mm), rows: allReq_(key), hours: reqHoursMonth_(key) }; };
   const staff = sh_('Staff').getDataRange().getValues().slice(1)
     .filter(r => String(r[0]).trim())
     .map(r => ({ code: String(r[0]).trim(), name: String(r[1]).trim(), role: String(r[2] || 'PN/NA').trim().toUpperCase() }));
-  const ov = {}; ov[m.cur] = overrides_(m.cur); ov[m.next] = overrides_(m.next);
-  return { ok: true, caps: caps_(), ov: ov, staff: staff, months: [mk(m.cur, m.t.y, m.t.m), mk(m.next, m.ny, m.nm)] };
+  // แอดมินดู/แก้ได้ทุกเดือน: เดือนปัจจุบัน + เดือนหน้า + เดือนอื่นที่เลือกเพิ่ม
+  const keys = [m.cur, m.next];
+  (Array.isArray(extra) ? extra : []).forEach(k => { k = String(k || '').trim(); if (ymOf_(k) && keys.indexOf(k) < 0) keys.push(k); });
+  keys.sort();
+  const ov = {}; keys.forEach(k => ov[k] = overrides_(k));
+  return { ok: true, caps: caps_(), ov: ov, staff: staff, months: keys.map(mk) };
 }
 
 /** แอดมินแก้โควต้ารายวัน (off = null → คืนค่าปกติ) และแจ้งเตือนถ้ามีคนขอไว้เกินโควต้าใหม่ */
 function setQuota(code, pin, key, group, day, off, short) {
   const u = auth_(code, pin);
   if (!u || !u.admin) return { ok: false, msg: 'ไม่มีสิทธิ์แอดมิน' };
-  const m = months_();
-  if (key !== m.cur && key !== m.next) return { ok: false, msg: 'เดือนไม่ถูกต้อง' };
-  const y = key === m.cur ? m.t.y : m.ny, mm = key === m.cur ? m.t.m : m.nm;
+  const t = ymOf_(key);
+  if (!t) return { ok: false, msg: 'เดือนไม่ถูกต้อง' };
+  key = String(key).trim();
+  const y = t.y, mm = t.mm;
   day = Number(day);
   if (['RN', 'PN/NA'].indexOf(group) < 0 || !(day >= 1 && day <= daysIn_(y, mm))) return { ok: false, msg: 'ข้อมูลไม่ถูกต้อง' };
   const reset = off === null || off === undefined;
@@ -393,7 +404,7 @@ function setQuota(code, pin, key, group, day, off, short) {
   const over = [];
   if (offR.length > eff.off) over.push({ label: 'หยุด/ลาพักร้อน', used: offR.length, cap: eff.off, names: offR.map(r => r.name) });
   if (shR.length > eff.short) over.push({ label: 'เวรสั้น', used: shR.length, cap: eff.short, names: shR.map(r => r.name) });
-  return { ok: true, over: over, data: adminData(code, pin) };
+  return { ok: true, over: over, data: adminData(code, pin, [key]) };
 }
 
 /** รายการที่เกินโควต้าของวันนั้น (ใช้แจ้งเตือนแอดมิน) */
@@ -412,9 +423,10 @@ function overFor_(key, group, day, y, mm) {
 function adminSetRequest(code, pin, key, targetCode, day, type) {
   const u = auth_(code, pin);
   if (!u || !u.admin) return { ok: false, msg: 'ไม่มีสิทธิ์แอดมิน' };
-  const m = months_();
-  if (key !== m.cur && key !== m.next) return { ok: false, msg: 'เดือนไม่ถูกต้อง' };
-  const y = key === m.cur ? m.t.y : m.ny, mm = key === m.cur ? m.t.m : m.nm;
+  const t = ymOf_(key);
+  if (!t) return { ok: false, msg: 'เดือนไม่ถูกต้อง' };
+  key = String(key).trim();
+  const y = t.y, mm = t.mm;
   day = Number(day);
   targetCode = String(targetCode || '').trim();
   const del = type === null || type === undefined;
@@ -438,7 +450,7 @@ function adminSetRequest(code, pin, key, targetCode, day, type) {
   } finally {
     lock.releaseLock();
   }
-  return { ok: true, over: overFor_(key, grp_(role), day, y, mm), data: adminData(code, pin) };
+  return { ok: true, over: overFor_(key, grp_(role), day, y, mm), data: adminData(code, pin, [key]) };
 }
 
 /* ===================== จัดเวรอัตโนมัติ ===================== */
@@ -780,10 +792,10 @@ function writeRoster_(P, grid, A, alerts, name) {
 function rosterGuard_(code, pin, key, group) {
   const u = auth_(code, pin);
   if (!u || !u.admin) return { err: 'ไม่มีสิทธิ์แอดมิน' };
-  const m = months_();
-  if (key !== m.cur && key !== m.next) return { err: 'เดือนไม่ถูกต้อง' };
+  const t = ymOf_(key);
+  if (!t) return { err: 'เดือนไม่ถูกต้อง' };
   if (['RN', 'PN/NA'].indexOf(group) < 0) return { err: 'กลุ่มไม่ถูกต้อง' };
-  return { y: key === m.cur ? m.t.y : m.ny, mm: key === m.cur ? m.t.m : m.nm };
+  return { y: t.y, mm: t.mm };
 }
 
 /** แอดมินกด "จัดเวร": สร้างตารางร่างลงแท็บใหม่ในชีต (เขียนทับของเดิมของเดือน/กลุ่มนี้) */

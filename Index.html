@@ -203,7 +203,12 @@ function goM(y,m){
     call("monthInfo",[auth.code,auth.pin,k],r=>{if(!r.ok){err=r.msg;render();return}setEd(r.info);render()});
   }else{setEd(S.next);render()}
 }
-function openAdmin(){call("adminData",[auth.code,auth.pin],r=>{if(!r.ok){err=r.msg;render();return}AD=r;view="admin";render()})}
+function setAD(d,key){const k=key||(AD&&AD.months[am]&&AD.months[am].key);AD=d;const i=d.months.findIndex(x=>x.key===k);am=i<0?0:i}
+function pickMonth(v){
+  if(!v)return;const have=AD.months.map(x=>x.key);
+  call("adminData",[auth.code,auth.pin,have.concat(v)],r=>{if(!r.ok){err=r.msg;render();return}setAD(r,v);ad=0;warn=null;msg="";RS=null;render()})
+}
+function openAdmin(){call("adminData",[auth.code,auth.pin],r=>{if(!r.ok){err=r.msg;render();return}AD=r;am=r.months.findIndex(x=>x.key===S.next.key);view="admin";render()})}
 function printHtml(){
   const mo=AD.months[am],n=mo.n,inG=r=>(r.role==="RN"?"RN":"PN/NA")===ag;
   const staff=AD.staff.filter(inG),reqs=mo.rows.filter(inG);
@@ -250,14 +255,14 @@ function saveQuota(reset){
   if(!reset&&(isNaN(off)||isNaN(sh)||off<0||sh<0)){err="กรอกโควต้าเป็นตัวเลข 0 ขึ้นไป";render();return}
   call("setQuota",[auth.code,auth.pin,mo.key,ag,ad,off,sh],r=>{
     if(!r.ok){err=r.msg;render();return}
-    AD=r.data;warn=r.over;msg="บันทึกโควต้าแล้ว ✓";render();
+    setAD(r.data);warn=r.over;msg="บันทึกโควต้าแล้ว ✓";render();
   });
 }
 function adminSetCode(code,type){
   const mo=AD.months[am];
   call("adminSetRequest",[auth.code,auth.pin,mo.key,code,ad,type],r=>{
     if(!r.ok){err=r.msg;render();return}
-    AD=r.data;warn=r.over;msg="แก้ไขเวรแล้ว ✓";render();
+    setAD(r.data);warn=r.over;msg="แก้ไขเวรแล้ว ✓";render();
   });
 }
 function adminSetIdx(i,type){adminSetCode(DR[i].code,type)}
@@ -324,7 +329,7 @@ function adminHtml(){
   const ol=overList(mo);
   return `<div class="card top"><h1>หน้าแอดมิน</h1><button class="link" onclick="view='me';render()">← กลับ</button></div>
   ${ol.length?`<div class="warn" style="margin-bottom:12px">⚠ มีคำขอเกินโควต้า ${ol.length} รายการใน ${MN[mo.m-1]}: ${ol.join(" · ")}</div>`:""}
-  <div class="g"><div class="card main"><div class="tabs">${AD.months.map((x,i)=>`<button class="${am===i?"on":""}" onclick="am=${i};ad=0;warn=null;msg='';RS=null;render()">${MN[x.m-1]} ${x.y+543}</button>`).join("")}</div>
+  <div class="g"><div class="card main"><div class="mu" style="margin-bottom:6px">เลือกเดือนอื่น (แก้ได้ทุกเดือน): <input type="month" value="${mo.key}" onchange="pickMonth(this.value)" style="width:auto;display:inline-block"></div><div class="tabs">${AD.months.map((x,i)=>`<button class="${am===i?"on":""}" onclick="am=${i};ad=0;warn=null;msg='';RS=null;render()">${MN[x.m-1]} ${x.y+543}</button>`).join("")}</div>
   <div style="border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:10px"><h2>ชั่วโมงบังคับ ${MN[mo.m-1]} ${mo.y+543}</h2>
   <div class="mu">กรอกล่วงหน้าได้ · ตำแหน่งละไม่เท่ากัน</div>${hrsForm("ah"+am,mo.hours)}
   <button class="btn" ${busy?"disabled":""} onclick="saveHrs('${mo.key}','ah'+am)">บันทึกชั่วโมงบังคับ</button></div>
