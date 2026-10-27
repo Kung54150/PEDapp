@@ -104,6 +104,9 @@ select{min-height:42px}
 .tk{width:64px;aspect-ratio:1;border-radius:8px;border:1px solid;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
 .tk .w{font-size:11px;font-weight:600;opacity:.85}.tk .n{font-size:20px;font-weight:800;line-height:1.1}
 .tk .t{margin-top:3px;font-size:10px;font-weight:700;display:flex;align-items:center;gap:2px}.tk .t span{font-size:12px}
+.d.sel.sX,.d.sel.sS,.d.sel.sV{outline:0;border-width:2px;border-style:dashed}
+.d.sel.sX{background:var(--xb);border-color:var(--x);color:var(--x)}.d.sel.sS{background:var(--shb);border-color:var(--sh);color:var(--sh)}.d.sel.sV{background:var(--vb);border-color:var(--v);color:var(--v)}
+.d small b{font-size:11px;font-weight:400}
 .tk.pd{border-style:dashed;border-width:2px}
 .tk.X{color:var(--x);background:var(--xb);border-color:var(--x)}.tk.S{color:var(--sh);background:var(--shb);border-color:var(--sh)}.tk.V{color:var(--v);background:var(--vb);border-color:var(--v)}
 .hin{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;margin-top:8px}
@@ -367,9 +370,10 @@ function cal(info,editable){
     const v=reqs[d]||"",dw=new Date(info.y,info.m-1,d).getDay();
     const full=editable&&L&&!v&&(mode==="S"?L.shortLeft[d]<1:(L.offLeft[d]<1||L.blocked.indexOf(d)>=0));
     const fx=S.user.code==="53133"&&!v?(dw>=1&&dw<=4?"10-16":dw===5?"12-16":dw===6?"8-20":"8-17"):"";
-    const cls=[v,editable&&sel.has(d)?"sel":"",editable&&v&&saved[d]!==v?"pend":"",full?"full":""].join(" ");
+    const isSel=editable&&sel.has(d),tv=v||(isSel?mode:"");
+    const cls=[v,isSel?"sel s"+mode:"",editable&&v&&saved[d]!==v?"pend":"",full?"full":""].join(" ");
     const click=editable&&S.open?`onclick="tap(${d})"`:"disabled";
-    h+=`<button class="d ${cls}" ${click}><span>${d}</span><small>${v==="S"?"สั้น":v==="V"?"พ.ร.":v||fx}</small></button>`;
+    h+=`<button class="d ${cls}" ${click}><span>${d}</span><small>${tv?`<b>${TICON[tv][0]}</b>${TICON[tv][1]}`:fx}</small></button>`;
   }
   return `<div class="cal">${h}</div>`;
 }
