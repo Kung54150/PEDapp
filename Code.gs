@@ -17,7 +17,7 @@ function doGet() {
 }
 
 /* ---------- API สำหรับแอปที่ติดตั้งบนหน้าจอ (PWA) ---------- */
-const API_FNS_ = { login, save, monthInfo, adminData, setQuota, adminSetRequest, generateRoster, checkRoster, notifyAdmin };
+const API_FNS_ = { login, save, monthInfo, setReqHours, adminData, setQuota, adminSetRequest, generateRoster, checkRoster, notifyAdmin };
 function doPost(e) {
   let out;
   try {
@@ -109,6 +109,9 @@ function setup() {
   const qo = make('QuotaOverride', ['เดือน', 'วันที่', 'กลุ่ม', 'โควต้าหยุด', 'โควต้าเวรสั้น', 'แก้โดย (รหัส)', 'เวลาแก้']);
   qo.getRange('A:A').setNumberFormat('@');
   qo.getRange('C:C').setNumberFormat('@');
+
+  const rh = make('RequiredHours', ['เดือน', 'ตำแหน่ง (RN / PN / NA)', 'ชม.บังคับ', 'แก้โดย (รหัส)', 'เวลาแก้']);
+  rh.getRange('A:B').setNumberFormat('@');
 
   make('Notices', ['เวลา', 'รหัส', 'ชื่อ-สกุล', 'เดือนที่ขอแก้', 'ข้อความถึงแอดมิน', 'สถานะ']);
   Logger.log('สร้างแท็บเรียบร้อยแล้ว');
@@ -256,8 +259,9 @@ function state_(u) {
     open: !!u.admin || (m.t.d >= c.openDay && m.t.d <= c.closeDay),   // แอดมินขอเวรของตัวเองได้ตลอด ไม่ติดวันที่ 5-15
     openDay: c.openDay, closeDay: c.closeDay, quota: c.quota,
     all: allOwn_(u.code),
-    cur:  { key: m.cur,  y: m.t.y, m: m.t.m, req: getReq_(u.code, m.cur) },
-    next: { key: m.next, y: m.ny,  m: m.nm,  req: getReq_(u.code, m.next), lim: limits_(u, m.ny, m.nm, m.next) }
+    missing: missingHours_(u),
+    cur:  { key: m.cur,  y: m.t.y, m: m.t.m, req: getReq_(u.code, m.cur), hours: hoursFor_(u, m.cur) },
+    next: { key: m.next, y: m.ny,  m: m.nm,  req: getReq_(u.code, m.next), lim: limits_(u, m.ny, m.nm, m.next), hours: hoursFor_(u, m.next) }
   };
 }
 
@@ -279,7 +283,7 @@ function target_(u, m, key) {
 
 /** ข้อมูลเดือนใดก็ได้สำหรับแอดมิน (คำขอของตัวเอง + ที่ว่างรายวัน) */
 function monthInfo_(u, tg) {
-  return { key: tg.key, y: tg.y, m: tg.m, req: getReq_(u.code, tg.key), lim: limits_(u, tg.y, tg.m, tg.key) };
+  return { key: tg.key, y: tg.y, m: tg.m, req: getReq_(u.code, tg.key), lim: limits_(u, tg.y, tg.m, tg.key), hours: hoursFor_(u, tg.key) };
 }
 
 function monthInfo(code, pin, key) {
@@ -341,7 +345,7 @@ function adminData(code, pin) {
   const u = auth_(code, pin);
   if (!u || !u.admin) return { ok: false, msg: 'ไม่มีสิทธิ์แอดมิน' };
   const m = months_();
-  const mk = (key, y, mm) => ({ key: key, y: y, m: mm, n: daysIn_(y, mm), rows: allReq_(key) });
+  const mk = (key, y, mm) => ({ key: key, y: y, m: mm, n: daysIn_(y, mm), rows: allReq_(key), hours: reqHoursMonth_(key) });
   const staff = sh_('Staff').getDataRange().getValues().slice(1)
     .filter(r => String(r[0]).trim())
     .map(r => ({ code: String(r[0]).trim(), name: String(r[1]).trim(), role: String(r[2] || 'PN/NA').trim().toUpperCase() }));
@@ -459,9 +463,73 @@ function slotsData_() {
   return out;
 }
 
-function reqHours_() {
-  const v = sh_('Config').getRange('B6:B8').getValues();
-  return { NA: Number(v[0][0]) || 192, PN: Number(v[1][0]) || 184, RN: Number(v[2][0]) || 184 };
+/** ชม.บังคับที่แอดมินกรอกรายเดือน → { NA, PN, RN } (ยังไม่กรอก = null) */
+function reqHoursMonth_(key) {
+  const out = { NA: null, PN: null, RN: null };
+  const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RequiredHours');
+  if (!s || s.getLastRow() < 2) return out;
+  s.getRange(2, 1, s.getLastRow() - 1, 3).getValues().forEach(r => {
+    const p = String(r[1]).trim().toUpperCase();
+    if (String(r[0]).trim() === key && p in out && r[2] !== '') out[p] = Number(r[2]);
+  });
+  return out;
+}
+
+/** ชม.บังคับสำหรับจัดเวร: ค่ารายเดือน ถ้ายังไม่กรอกใช้ค่าเริ่มต้นจากแท็บ Config */
+function reqHours_(key) {
+  const v = sh_('Config').getRange('B6:B8').getValues(), mo = reqHoursMonth_(key);
+  return { NA: mo.NA || Number(v[0][0]) || 192, PN: mo.PN || Number(v[1][0]) || 184, RN: mo.RN || Number(v[2][0]) || 184 };
+}
+
+function roleKey_(role) { return role === 'RN' ? 'RN' : role === 'NA' ? 'NA' : 'PN'; }
+
+/** ชม.บังคับของเดือนนั้น: แอดมินเห็นครบทุกตำแหน่ง ผู้ใช้ทั่วไปเห็นเฉพาะของตำแหน่งตัวเอง */
+function hoursFor_(u, key) {
+  const h = reqHoursMonth_(key);
+  if (u.admin) return h;
+  const k = roleKey_(u.role), o = { NA: null, PN: null, RN: null };
+  o[k] = h[k];
+  return o;
+}
+
+/** แอดมินกรอกชม.บังคับของเดือน (ล่วงหน้าได้) แยกตามตำแหน่ง */
+function setReqHours(code, pin, key, vals) {
+  const u = auth_(code, pin);
+  if (!u || !u.admin) return { ok: false, msg: 'ไม่มีสิทธิ์แอดมิน' };
+  key = String(key || '').trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(key)) return { ok: false, msg: 'เดือนไม่ถูกต้อง' };
+  const roles = ['NA', 'PN', 'RN'], clean = {};
+  for (const p of roles) {
+    const v = Number(vals && vals[p]);
+    if (!(v > 0 && v <= 400)) return { ok: false, msg: 'ชม.บังคับ ' + p + ' ต้องเป็นตัวเลข 1-400' };
+    clean[p] = v;
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const s = sh_('RequiredHours');
+    const last = s.getLastRow();
+    if (last > 1) {
+      const rows = s.getRange(2, 1, last - 1, 2).getValues();
+      for (let i = rows.length - 1; i >= 0; i--) {
+        if (String(rows[i][0]).trim() === key) s.deleteRow(i + 2);
+      }
+    }
+    const add = roles.map(p => [key, p, clean[p], u.code, new Date()]);
+    s.getRange(s.getLastRow() + 1, 1, add.length, 5).setValues(add);
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, key: key, hours: reqHoursMonth_(key), missing: missingHours_(u) };
+}
+
+/** แอดมินยังไม่กรอกชม.บังคับของเดือนหน้า และถึงวันเปิดให้ขอเวรแล้ว → รายชื่อตำแหน่งที่ขาด */
+function missingHours_(u) {
+  if (!u.admin) return [];
+  const m = months_(), c = cfg_();
+  if (m.t.d < c.openDay) return [];
+  const h = reqHoursMonth_(m.next);
+  return ['NA', 'PN', 'RN'].filter(p => !h[p]);
 }
 
 /** จัดเวรให้ครบแพทเทิน เกลี่ยวันทำงาน/ชั่วโมงให้ใกล้กัน คนที่ขอหยุดมากได้ทำงานน้อยลงตามจริง */
@@ -655,7 +723,7 @@ function rosterInput_(key, y, mm, group) {
       if (String(r[0]).trim() === key) part.push({ code: String(r[1]).trim(), day: Number(r[2]), shift: String(r[3]).trim() });
     });
   }
-  return { y: y, m: mm, key: key, group: group, staff: staff, req: req, slots: slotsAll[group], part: part, reqH: reqHours_() };
+  return { y: y, m: mm, key: key, group: group, staff: staff, req: req, slots: slotsAll[group], part: part, reqH: reqHours_(key) };
 }
 
 function writeRoster_(P, grid, A, alerts, name) {

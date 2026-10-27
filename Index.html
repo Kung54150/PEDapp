@@ -97,6 +97,9 @@ select{min-height:42px}
 .chip small{display:block;font-size:11px;color:var(--mu)}
 .chip.on{border-color:var(--pr);background:var(--pr2)}
 .chip.ed{box-shadow:inset 0 -3px 0 var(--pr)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.modal .box{background:var(--card);border-radius:14px;padding:18px;max-width:380px;width:100%}
+.hin{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;margin-top:8px}
 </style>
 </head>
 <body>
@@ -128,7 +131,7 @@ function login(){
     auth={code:code,pin:pin};msg="";adminSent=false;load(r.state);render();
   });
 }
-function logout(){vm=null;view='me';AD=null;auth=null;S=null;err="";msg="";render()}
+function logout(){popDismissed=false;vm=null;view='me';AD=null;auth=null;S=null;err="";msg="";render()}
 function tap(d){
   if(!S.open||busy)return;msg="";err="";
   if(draft[d])delete draft[d];else sel.has(d)?sel.delete(d):sel.add(d);
@@ -162,6 +165,33 @@ function notify(){
     if(!r.ok){err=r.msg;render();return}
     adminSent=true;render();
   });
+}
+const RK=["NA","PN","RN"];
+function hrsLine(h){return RK.filter(k=>h&&h[k]).map(k=>k+" "+h[k]).join(" · ")||"ยังไม่กำหนด"}
+function hrsForm(idp,h){return `<div class="hin">${RK.map(k=>`<b>${k}</b><input id="${idp}${k}" type="number" min="1" max="400" inputmode="decimal" placeholder="ชม." value="${h&&h[k]||""}">`).join("")}</div>`}
+function readHrs(idp){const o={};RK.forEach(k=>o[k]=$("#"+idp+k).value);return o}
+function viewHours(k){
+  if(S.cur.key===k)return S.cur.hours;if(S.next.key===k)return S.next.hours;
+  return S.ext&&S.ext.key===k?S.ext.hours:null}
+function saveHrs(key,idp){
+  call("setReqHours",[auth.code,auth.pin,key,readHrs(idp)],r=>{
+    if(!r.ok){err=r.msg;render();return}
+    S.missing=r.missing;msg="บันทึกชั่วโมงบังคับแล้ว ✓";
+    [S.cur,S.next,S.ext].forEach(x=>{if(x&&x.key===r.key)x.hours=r.hours});
+    if(AD)AD.months.forEach(x=>{if(x.key===r.key)x.hours=r.hours});
+    render();
+  });
+}
+let popDismissed=false;
+function popupHtml(){
+  if(!S||!S.user.admin||popDismissed||!(S.missing&&S.missing.length))return"";
+  const nx=S.next;
+  return `<div class="modal"><div class="box"><h2>⚠ ยังไม่ได้กรอกชั่วโมงบังคับ</h2>
+  <div class="mu">ถึงกำหนดเปิดขอเวรของ ${MN[nx.m-1]} ${nx.y+543} แล้ว แต่ยังไม่ได้กรอกชั่วโมงบังคับของ: <b>${S.missing.join(", ")}</b></div>
+  ${hrsForm("pp",nx.hours)}
+  ${err?`<div class="err">${esc(err)}</div>`:""}
+  <button class="btn" ${busy?"disabled":""} onclick="saveHrs('${nx.key}','pp')">บันทึก</button>
+  <button class="btn alt" onclick="popDismissed=true;render()">ไว้ทีหลัง</button></div></div>`;
 }
 function vkey(){return vm.y+"-"+String(vm.m).padStart(2,"0")}
 function ed(){const k=vkey();return k===S.next.key?S.next:(S.user.admin&&S.ext&&S.ext.key===k?S.ext:null)}
@@ -295,6 +325,9 @@ function adminHtml(){
   return `<div class="card top"><h1>หน้าแอดมิน</h1><button class="link" onclick="view='me';render()">← กลับ</button></div>
   ${ol.length?`<div class="warn" style="margin-bottom:12px">⚠ มีคำขอเกินโควต้า ${ol.length} รายการใน ${MN[mo.m-1]}: ${ol.join(" · ")}</div>`:""}
   <div class="g"><div class="card main"><div class="tabs">${AD.months.map((x,i)=>`<button class="${am===i?"on":""}" onclick="am=${i};ad=0;warn=null;msg='';RS=null;render()">${MN[x.m-1]} ${x.y+543}</button>`).join("")}</div>
+  <div style="border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:10px"><h2>ชั่วโมงบังคับ ${MN[mo.m-1]} ${mo.y+543}</h2>
+  <div class="mu">กรอกล่วงหน้าได้ · ตำแหน่งละไม่เท่ากัน</div>${hrsForm("ah"+am,mo.hours)}
+  <button class="btn" ${busy?"disabled":""} onclick="saveHrs('${mo.key}','ah'+am)">บันทึกชั่วโมงบังคับ</button></div>
   <div class="tabs">${["RN","PN/NA"].map(g=>`<button class="${ag===g?"on":""}" onclick="ag='${g}';ad=0;warn=null;msg='';RS=null;render()">${g}</button>`).join("")}</div>
   <div class="mu">ปฏิทินแสดง จำนวนขอหยุด/โควต้า (✎ = แก้โควต้าวันนั้นแล้ว, สีแดง = เกินโควต้า)</div>
   <div class="cal">${cl}</div>${dayPanel(mo,rs)}</div>
@@ -319,7 +352,8 @@ function cal(info,editable){
   return `<div class="cal">${h}</div>`;
 }
 
-function render(){
+function render(){render0();let m=document.getElementById('pop');if(!m){m=document.createElement('div');m.id='pop';document.body.appendChild(m)}m.innerHTML=popupHtml()}
+function render0(){
   const a=$("#app");
   a.style.maxWidth=view==="print"?"none":"";
   a.classList.toggle("wide",!!S||view!=="me");
@@ -352,6 +386,7 @@ function render(){
 
   <div class="g"><div class="card main"><div class="strip" id="strip">${chips}</div>
   <div class="top"><h2>${MN[vm.m-1]} ${vm.y+543}${vtag}</h2>${vstatus}</div>
+    <div class="mu" style="margin:6px 0">ชั่วโมงบังคับ ${MN[vm.m-1]} ${vm.y+543}: <b>${S.user.admin?hrsLine(viewHours(vk)):(()=>{const h=viewHours(vk),v=h&&h[S.user.role==="RN"?"RN":S.user.role==="NA"?"NA":"PN"];return v?v+" ชม. ("+esc(S.user.role)+")":"ยังไม่กำหนด"})()}</b></div>
     ${!isNext?`<div class="warn">เดือนนี้ดูอย่างเดียว · <button class="link" onclick="goM(${nx.y},${nx.m})">ไปเดือนที่ขอเวรได้ (${MN[nx.m-1]})</button></div>`:""}
     ${isNext&&!op?`<div class="warn">${why}</div>`:""}
     ${isNext&&op?`<div class="mu" style="margin:6px 0">1) แตะวันที่ได้หลายวัน 2) เลือกประเภท 3) กด Add</div>
