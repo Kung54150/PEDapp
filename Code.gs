@@ -7,6 +7,9 @@ const TZ = 'Asia/Bangkok';
 const TYPE_TH = { X: 'เวรหยุด', S: 'เวรสั้น', V: 'ลาพักร้อน' };
 const DOWN = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 const EXCL = [['60064', '53133']];   // คู่ที่ห้ามขอเวรหยุดตรงกัน
+// วันหยุดประจำ (Fix) ของบางคน ใช้เมื่อคอลัมน์ G ในแท็บ Staff ว่าง – ใส่ "-" ในคอลัมน์ G เพื่อยกเลิก
+const FIXED_OFF_DEFAULT = { '63003': [0, 6] };   // หัวหน้าแผนก: หยุด อา + ส เสมอ
+const DAY_ALIAS = { 'อาทิตย์': 0, 'จันทร์': 1, 'อังคาร': 2, 'พุธ': 3, 'พฤหัส': 4, 'พฤหัสบดี': 4, 'ศุกร์': 5, 'เสาร์': 6 };
 const TYPE_KEY = { 'เวรหยุด': 'X', 'เวรสั้น': 'S', 'ลาพักร้อน': 'V' };
 
 /* ---------- หน้าเว็บ ---------- */
@@ -49,6 +52,8 @@ function setup() {
   staff.getRange('D:F').setNumberFormat('@');
   staff.getRange('E1').setValue('แอดมิน (ใส่ Y)').setFontWeight('bold').setBackground('#e3f3ef');
   staff.getRange('F1').setValue('พาสทาม (ใส่ Y)').setFontWeight('bold').setBackground('#e3f3ef');
+  staff.getRange('G1').setValue('วันหยุดประจำ (เช่น อา,ส)').setFontWeight('bold').setBackground('#e3f3ef');
+  staff.getRange('G:G').setNumberFormat('@');
   if (staff.getLastRow() === 1) staff.appendRow(['00000', 'ตัวอย่าง (ลบแถวนี้ทิ้ง)', 'NA', '']);
 
   const cfg = make('Config', ['รายการ', 'ค่า']);
@@ -82,7 +87,7 @@ function setup() {
     const q = [];
     DOWN.forEach((d, i) => {
       const wk = i >= 1 && i <= 5;
-      q.push(['RN', d, wk ? 1 : 2, wk ? 2 : 1, i === 0 ? '9-18 x1' : i === 6 ? '7-17 x1' : '7-17 x1, 8-18 x1']);
+      q.push(['RN', d, 1, wk ? 2 : 1, i === 0 ? '9-18 x1' : i === 6 ? '7-17 x1' : '7-17 x1, 8-18 x1']);
     });
     DOWN.forEach(d => q.push(['PN/NA', d, 1, 3, '7-17 x1, 8-17 x2']));
     quota.getRange(2, 1, q.length, 5).setValues(q);
@@ -162,10 +167,24 @@ function auth_(code, pin) {
       code: code,
       name: String(r[1]).trim(),
       role: String(r[2] || 'PN/NA').trim().toUpperCase(),
-      admin: String(r[4] || '').trim().toUpperCase() === 'Y'
+      admin: String(r[4] || '').trim().toUpperCase() === 'Y',
+      fixed: fixedOff_(code, r[6])
     };
   }
   return null;
+}
+
+/** คอลัมน์ G ของแท็บ Staff (เช่น "อา,ส") → [0..6]; ว่าง = ใช้ค่าเริ่มต้นของรหัสนั้น; "-" = ไม่มี */
+function fixedOff_(code, cell) {
+  const t = String(cell === undefined || cell === null ? '' : cell).trim();
+  if (!t) return (FIXED_OFF_DEFAULT[code] || []).slice();
+  const out = [];
+  t.split(/[,\s/;]+/).forEach(w => {
+    w = w.replace(/\./g, '').trim();
+    const i = w in DAY_ALIAS ? DAY_ALIAS[w] : DOWN.indexOf(w);
+    if (i >= 0 && out.indexOf(i) < 0) out.push(i);
+  });
+  return out;
 }
 
 function grp_(role) { return role === 'RN' ? 'RN' : 'PN/NA'; }
@@ -313,6 +332,9 @@ function save(code, pin, items, key) {
     for (const k in items) {
       const d = Number(k), t = items[k];
       if (!(d >= 1 && d <= n) || !TYPE_TH[t]) return { ok: false, msg: 'ข้อมูลไม่ถูกต้อง' };
+      if ((u.fixed || []).indexOf(new Date(tg.y, tg.m - 1, d).getDay()) >= 0) {
+        continue;   // วันหยุดประจำ: ไม่บันทึกและไม่นับโควต้า (ไม่แจ้งอะไร)
+      }
       if (t === 'S') {
         if (lim.shortLeft[d] < 1) return fail('เวรสั้นวันที่ ' + d + ' เต็มแล้ว');
       } else {
@@ -724,10 +746,19 @@ function rosterInput_(key, y, mm, group) {
   const staff = sh_('Staff').getDataRange().getValues().slice(1)
     .filter(r => String(r[0]).trim())
     .map(r => ({ code: String(r[0]).trim(), name: String(r[1]).trim(), role: String(r[2] || 'PN/NA').trim().toUpperCase(),
-                 part: String(r[5] || '').trim().toUpperCase() === 'Y' }))
+                 part: String(r[5] || '').trim().toUpperCase() === 'Y',
+                 fixed: fixedOff_(String(r[0]).trim(), r[6]) }))
     .filter(s => grp_(s.role) === group);
   const req = {};
   allReq_(key).forEach(r => { (req[r.code] = req[r.code] || {})[r.day] = r.type; });
+  // วันหยุดประจำ → ลงเป็นวันหยุดในตารางเลย (ไม่นับโควต้าขอเวร) ถ้าไม่ได้ขอลา/เวรสั้นไว้เอง
+  staff.forEach(s => {
+    for (let d = 1; d <= daysIn_(y, mm); d++) {
+      if (s.fixed.indexOf(new Date(y, mm - 1, d).getDay()) >= 0 && !(req[s.code] && req[s.code][d])) {
+        (req[s.code] = req[s.code] || {})[d] = 'X';
+      }
+    }
+  });
   const part = [];
   const ps = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PartTime');
   if (ps && ps.getLastRow() > 1) {
