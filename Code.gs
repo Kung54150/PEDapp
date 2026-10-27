@@ -17,7 +17,7 @@ function doGet() {
 }
 
 /* ---------- API สำหรับแอปที่ติดตั้งบนหน้าจอ (PWA) ---------- */
-const API_FNS_ = { login, save, adminData, setQuota, adminSetRequest, generateRoster, checkRoster, notifyAdmin };
+const API_FNS_ = { login, save, monthInfo, adminData, setQuota, adminSetRequest, generateRoster, checkRoster, notifyAdmin };
 function doPost(e) {
   let out;
   try {
@@ -268,23 +268,44 @@ function login(code, pin) {
   return { ok: true, state: state_(u) };
 }
 
-/** บันทึกคำขอของเดือนหน้า (แทนที่ของเดิมทั้งเดือน) พร้อมตรวจโควต้า */
-function save(code, pin, items) {
+/** เดือนเป้าหมายของการขอเวร: แอดมินเลือกเดือนไหนก็ได้ (yyyy-mm), คนอื่นได้เฉพาะเดือนหน้า */
+function target_(u, m, key) {
+  key = String(key || '').trim();
+  if (u.admin && /^\d{4}-(0[1-9]|1[0-2])$/.test(key)) {
+    return { key: key, y: Number(key.slice(0, 4)), m: Number(key.slice(5)) };
+  }
+  return { key: m.next, y: m.ny, m: m.nm };
+}
+
+/** ข้อมูลเดือนใดก็ได้สำหรับแอดมิน (คำขอของตัวเอง + ที่ว่างรายวัน) */
+function monthInfo_(u, tg) {
+  return { key: tg.key, y: tg.y, m: tg.m, req: getReq_(u.code, tg.key), lim: limits_(u, tg.y, tg.m, tg.key) };
+}
+
+function monthInfo(code, pin, key) {
+  const u = auth_(code, pin);
+  if (!u) return { ok: false, msg: 'ยืนยันตัวตนไม่ผ่าน' };
+  if (!u.admin) return { ok: false, msg: 'ไม่มีสิทธิ์แอดมิน' };
+  return { ok: true, info: monthInfo_(u, target_(u, months_(), key)) };
+}
+
+/** บันทึกคำขอของเดือนหน้า (แอดมินเลือกเดือนอื่นได้) แทนที่ของเดิมทั้งเดือน พร้อมตรวจโควต้า */
+function save(code, pin, items, key) {
   const u = auth_(code, pin);
   if (!u) return { ok: false, msg: 'ยืนยันตัวตนไม่ผ่าน' };
 
-  const m = months_(), c = cfg_();
+  const m = months_(), c = cfg_(), tg = target_(u, m, key);
   if (!u.admin && !(m.t.d >= c.openDay && m.t.d <= c.closeDay)) {
     return { ok: false, msg: 'ปิดรับคำขอแล้ว กรุณาแจ้งแอดมิน', state: state_(u) };
   }
 
-  const n = daysIn_(m.ny, m.nm), rows = [];
+  const n = daysIn_(tg.y, tg.m), rows = [];
   let used = 0;
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    const lim = limits_(u, m.ny, m.nm, m.next);
-    const fail = msg => ({ ok: false, msg: msg, state: state_(u) });
+    const lim = limits_(u, tg.y, tg.m, tg.key);
+    const fail = msg => ({ ok: false, msg: msg, state: state_(u), info: u.admin ? monthInfo_(u, tg) : undefined });
     for (const k in items) {
       const d = Number(k), t = items[k];
       if (!(d >= 1 && d <= n) || !TYPE_TH[t]) return { ok: false, msg: 'ข้อมูลไม่ถูกต้อง' };
@@ -295,7 +316,7 @@ function save(code, pin, items) {
         if (lim.offLeft[d] < 1) return fail('วันหยุดวันที่ ' + d + ' เต็มแล้ว');
         if (lim.blocked.indexOf(d) >= 0) return fail('วันที่ ' + d + ' ไม่สามารถหยุดได้');
       }
-      rows.push([new Date(), u.code, u.name, u.role, m.next, d, TYPE_TH[t]]);
+      rows.push([new Date(), u.code, u.name, u.role, tg.key, d, TYPE_TH[t]]);
     }
     if (used > c.quota) return fail('เกินโควต้าเวรหยุด ' + c.quota + ' วัน (ลาพักร้อนหักจากโควต้านี้)');
     rows.sort((x, y) => x[5] - y[5]);
@@ -305,14 +326,14 @@ function save(code, pin, items) {
     if (last > 1) {
       const vals = s.getRange(2, 1, last - 1, 7).getValues();
       for (let i = vals.length - 1; i >= 0; i--) {
-        if (String(vals[i][1]).trim() === u.code && String(vals[i][4]).trim() === m.next) s.deleteRow(i + 2);
+        if (String(vals[i][1]).trim() === u.code && String(vals[i][4]).trim() === tg.key) s.deleteRow(i + 2);
       }
     }
     if (rows.length) s.getRange(s.getLastRow() + 1, 1, rows.length, 7).setValues(rows);
   } finally {
     lock.releaseLock();
   }
-  return { ok: true, state: state_(u) };
+  return { ok: true, state: state_(u), info: u.admin ? monthInfo_(u, tg) : undefined };
 }
 
 /** ข้อมูลสำหรับหน้าแอดมิน: คำขอของทุกคน ทั้งเดือนปัจจุบันและเดือนหน้า */

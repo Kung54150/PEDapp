@@ -136,7 +136,7 @@ function tap(d){
 }
 function add(){
   err="";msg="";if(!sel.size)return;
-  const L=S.next.lim,bad=[];
+  const L=ed().lim,bad=[];
   sel.forEach(d=>{
     if(mode==="S"){if(L.shortLeft[d]<1)bad.push("เวรสั้นวันที่ "+d+" เต็มแล้ว")}
     else if(L.offLeft[d]<1)bad.push("วันหยุดวันที่ "+d+" เต็มแล้ว");
@@ -148,9 +148,11 @@ function add(){
 }
 function rmType(k){Object.keys(draft).forEach(d=>{if(draft[d]===k)delete draft[d]});render()}
 function save(){
-  call("save",[auth.code,auth.pin,draft],r=>{
-    if(!r.ok){err=r.msg;if(r.state)load(r.state);render();return}
-    load(r.state);msg="บันทึกแล้ว ✓";render();
+  const k=vkey();
+  call("save",[auth.code,auth.pin,draft,k],r=>{
+    const back=()=>{if(r.info&&r.info.key!==r.state.next.key)setEd(r.info)};
+    if(!r.ok){err=r.msg;if(r.state){load(r.state);back()}render();return}
+    load(r.state);back();msg="บันทึกแล้ว ✓";render();
   });
 }
 function notify(){
@@ -161,7 +163,16 @@ function notify(){
     adminSent=true;render();
   });
 }
-function goM(y,m){vm={y:y,m:m};msg="";err="";render()}
+function vkey(){return vm.y+"-"+String(vm.m).padStart(2,"0")}
+function ed(){const k=vkey();return k===S.next.key?S.next:(S.user.admin&&S.ext&&S.ext.key===k?S.ext:null)}
+function setEd(info){S.ext=info===S.next?null:info;saved=Object.assign({},info.req);draft=Object.assign({},saved);sel.clear()}
+function goM(y,m){
+  vm={y:y,m:m};msg="";err="";sel.clear();
+  const k=vkey();
+  if(S.user.admin&&k!==S.next.key){
+    call("monthInfo",[auth.code,auth.pin,k],r=>{if(!r.ok){err=r.msg;render();return}setEd(r.info);render()});
+  }else{setEd(S.next);render()}
+}
 function openAdmin(){call("adminData",[auth.code,auth.pin],r=>{if(!r.ok){err=r.msg;render();return}AD=r;view="admin";render()})}
 function printHtml(){
   const mo=AD.months[am],n=mo.n,inG=r=>(r.role==="RN"?"RN":"PN/NA")===ag;
@@ -328,13 +339,13 @@ function render(){
   const dirty=JSON.stringify(draft)!==JSON.stringify(saved);
   const grp=Object.keys(TYPES).map(k=>({k:k,ds:Object.keys(draft).filter(d=>draft[d]===k).map(Number).sort((x,y)=>x-y)})).filter(g=>g.ds.length);
   const status=op?`<span class="badge">${S.user.admin?"แอดมิน: เปิดตลอด":"เปิดรับ (วันที่ "+S.openDay+"–"+S.closeDay+")"}</span>`:`<span class="badge lk">🔒 ล็อก</span>`;
-  const vk=vm.y+"-"+String(vm.m).padStart(2,"0"),isNext=vk===nx.key;
-  const vInfo=isNext?nx:{y:vm.y,m:vm.m,key:vk,req:(S.all||{})[vk]||{}};
-  const vstatus=isNext?status:(vk<nx.key?`<span class="badge lk">${vk===cu.key?"เดือนปัจจุบัน · ":"ผ่านมาแล้ว · "}ดูอย่างเดียว</span>`:`<span class="badge lk">ยังไม่เปิด · ดูอย่างเดียว</span>`);
-  const vtag=isNext?" (เดือนหน้า)":vk===cu.key?" (เดือนปัจจุบัน)":"";
+  const vk=vm.y+"-"+String(vm.m).padStart(2,"0"),E=ed(),isNext=!!E;
+  const vInfo=E||{y:vm.y,m:vm.m,key:vk,req:(S.all||{})[vk]||{}};
+  const vstatus=isNext?(S.user.admin&&vk!==nx.key?`<span class="badge">แอดมิน: แก้ได้ทุกเดือน</span>`:status):(vk<nx.key?`<span class="badge lk">${vk===cu.key?"เดือนปัจจุบัน · ":"ผ่านมาแล้ว · "}ดูอย่างเดียว</span>`:`<span class="badge lk">ยังไม่เปิด · ดูอย่างเดียว</span>`);
+  const vtag=vk===nx.key?" (เดือนหน้า)":vk===cu.key?" (เดือนปัจจุบัน)":"";
   let chips="";
   for(let i=-8;i<=4;i++){const t=nx.y*12+nx.m-1+i,y=Math.floor(t/12),m=t%12+1,k=y+"-"+String(m).padStart(2,"0");
-    chips+=`<button class="chip${k===vk?" on":""}${k===nx.key?" ed":""}" onclick="goM(${y},${m})">${MN[m-1]}<small>${y+543}${k===nx.key?" · ขอได้":k===cu.key?" · ปัจจุบัน":""}</small></button>`}
+    chips+=`<button class="chip${k===vk?" on":""}${k===nx.key?" ed":""}" onclick="goM(${y},${m})">${MN[m-1]}<small>${y+543}${k===nx.key||S.user.admin?" · ขอได้":k===cu.key?" · ปัจจุบัน":""}</small></button>`}
   const why=`เปิดรับคำขอวันที่ ${S.openDay}–${S.closeDay} ของทุกเดือน ตอนนี้ปิดอยู่ ถ้าต้องการแก้ไขให้แจ้งแอดมิน`;
   a.innerHTML=`<div class="card top"><div><h1>${esc(S.user.name)}</h1><div class="mu">รหัส ${esc(S.user.code)}</div></div>
     <div style="text-align:right"><span class="badge">${esc(S.user.role)}</span><br>${S.user.admin?`<button class="link" onclick="openAdmin()">หน้าแอดมิน</button><br>`:""}<button class="link" onclick="logout()">ออกจากระบบ</button></div></div>
@@ -350,7 +361,7 @@ function render(){
     ${isNext&&op?`<button class="btn alt" ${sel.size?"":"disabled"} onclick="add()">＋ Add ${sel.size?`(${sel.size} วัน → ${TYPES[mode]})`:""}</button>`:""}
     ${err?`<div class="err">${esc(err)}</div>`:""}</div>
 
-  <div class="card s1"><h2>คำขอของฉัน – ${MN[nx.m-1]} ${nx.y+543}</h2>
+  <div class="card s1"><h2>คำขอของฉัน – ${MN[vm.m-1]} ${vm.y+543}</h2>
     ${grp.length?grp.map(g=>`<div class="row"><span><b>${TYPES[g.k]}</b> · วันที่ ${g.ds.join(", ")}</span>${op?`<button class="x" onclick="rmType('${g.k}')">✕</button>`:""}</div>`).join(""):`<div class="mu">ยังไม่มีคำขอ</div>`}
     <div class="row"><span>ใช้โควต้าเวรหยุด (หยุด + ลาพักร้อน)</span><b>${used(draft)} / ${S.quota} วัน</b></div>
     ${op?`<button class="btn" ${dirty&&!busy?"":"disabled"} onclick="save()">${busy?"กำลังบันทึก…":"บันทึก"}</button>
