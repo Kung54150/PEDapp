@@ -333,7 +333,7 @@ function save(code, pin, items, key) {
       const d = Number(k), t = items[k];
       if (!(d >= 1 && d <= n) || !TYPE_TH[t]) return { ok: false, msg: 'ข้อมูลไม่ถูกต้อง' };
       if ((u.fixed || []).indexOf(new Date(tg.y, tg.m - 1, d).getDay()) >= 0) {
-        return fail('วันที่ ' + d + ' เป็นวันหยุดประจำของคุณอยู่แล้ว ไม่ต้องขอ');
+        continue;   // วันหยุดประจำ: ไม่บันทึกและไม่นับโควต้า (ไม่แจ้งอะไร)
       }
       if (t === 'S') {
         if (lim.shortLeft[d] < 1) return fail('เวรสั้นวันที่ ' + d + ' เต็มแล้ว');
